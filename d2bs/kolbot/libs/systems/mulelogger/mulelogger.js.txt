@@ -1,0 +1,5 @@
+CTRL F and search for logchar
+
+Put this inside the function:
+    include("systems/domstocks/domstocks.js");
+    domstocks.logstocks();
