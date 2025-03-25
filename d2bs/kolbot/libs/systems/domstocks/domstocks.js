@@ -4,6 +4,15 @@
 *  @desc        file for auto stock system
 *
 */
+function getRandomString(length = 6) {
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let randomStr = "";
+    for (let i = 0; i < length; i++) {
+        randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return randomStr;
+}
+include("common/Pickit.js");
 var domstocks = {
   validRealms: [
       "escl",  "escnl",  "esccl",  "esccnl",  "ehcl",  "ehcnl",  "ehccl",  "ehccnl",
@@ -61,131 +70,120 @@ var domstocks = {
   },
   addToPickit: function () {
     let myRealm = this.getRealmAcro();
-    var path = "pickit/shop/" + myRealm + ".nip"; 
-    var contents = FileTools.readText(path);
+    Config.PickitFiles.push("shop/" + domstocks.getRealmAcro() + ".nip");
+    let nipPath = "pickit/shop/base/" + myRealm + ".nip";
+    let contents = FileTools.readText(nipPath);
 
     if (!contents) {
-        print("Error: Unable to read file: " + path);
-        return; 
+        D2Bot.printToConsole("Error: Unable to read file: " + nipPath);
+        return [];
     }
 
-    var lines = contents.split(/\r?\n/); // Split file into lines
+    let lines = contents.split(/\r?\n/);
+    let cleanLines = [];
 
-    //  Loop through each line and add it to NTIP
     lines.forEach(function (line) {
-        if (line.trim()) { // 
-            NTIP.addLine(line,myRealm);
+        let trimmed = line.trim();
+        if (trimmed) {
+            NTIP.addLine(trimmed, myRealm); 
+            cleanLines.push(trimmed);
         }
     });
 
-    print(" Successfully added " + lines.length + " lines to NTIP.");
+    D2Bot.printToConsole("Successfully added " + cleanLines.length + " lines to NTIP from " + nipPath);
+    return cleanLines;
 },
+testPickit: function () {
+    let myRealm = this.getRealmAcro();
+    Config.PickitFiles.push("pickit/shop/base/" + domstocks.getRealmAcro() + ".nip");
+    print("PICKIT ADDED?");
+    return;
+},
+removeStocks: function (itemIds) {
 
-
-  logstocks: function () {
+},
+logstocks: function () {
+    
     let items = me.getItems();
     let itemsArray = [];
     let charname = me.charname;
     let account = me.account;
     let pass = "x";
     let myRealm = this.getRealmAcro();
-    this.addToPickit();
-    print("logstocks function started");
-    print("Items count: " + items.length);
-    print("Character: " + charname + " | Account: " + account);
-    print("Realm: " + myRealm);
+    NTIP.Clear();
+    NTIP.OpenFile("pickit/shop/base/" + myRealm + ".nip", true);
+    D2Bot.printToConsole("Logging Stocks");
+    D2Bot.printToConsole("Items count: " + items.length);
+    D2Bot.printToConsole("Character: " + charname + " | Account: " + account);
+    D2Bot.printToConsole("Realm: " + myRealm);
 
-   
+    let nipPath = "pickit/shop/base/" + myRealm + ".nip";
+    if (!FileTools.exists(nipPath)) {
+        D2Bot.printToConsole("❌ NIP file not found: " + nipPath);
+        return;
+    }
+
+    let nipLines = FileTools.readText(nipPath).split(/\r?\n/);
 
     for (let i = 0; i < items.length; i++) {
         delay(100);
+        let item = items[i];
 
-        if ([22, 76, 77, 78].indexOf(items[i].itemType) !== -1) {
-            print("Skipping item (scrolls/potions): " + items[i].name);
-            continue;
-        }
+        if ([22, 76, 77, 78].indexOf(item.itemType) !== -1) continue;
+        if (item.mode === 1 && this.skipEquiped) continue;
 
-        if (items[i].mode === 1 && this.skipEquiped) {
-            print("Skipping equipped item: " + items[i].name);
-            continue;
-        }
+        let result = Pickit.checkItem(item);
 
-        var result = Pickit.checkItem(items[i]); // Get pickit result
-        print("Processing item: " + items[i].name);
-        print("CheckItem result: " + JSON.stringify(result));
-
-        // Ensure result.line exists and matches myRealm
-        if (typeof result === "object" && result.line) {
-            var lineMatch = result.line.match(/#(\d+)/);
-            var lineNumber = lineMatch ? parseInt(lineMatch[1], 10) : "N/A";
-
-            print("Extracted line number: " + lineNumber);
-
-            // Ensure it's from the correct pickit file (myRealm.nip)
-            if (!result.line.includes(myRealm + "")) {
-                print("Skipping item (not from myRealm pickit file): " + items[i].name);
-                continue;
-            }
-
-            var path = "pickit/shop/" + myRealm + ".nip";
-            var contents = FileTools.readText(path);
-
-            if (!contents) {
-                print("Error: Unable to read file: " + path);
-                continue;
-            }
-
-            var lines = contents.split(/\r?\n/);
-            var lineContent = (lineNumber > 0 && lineNumber <= lines.length) ? lines[lineNumber - 1] : null;
-
-            if (lineContent !== null) {
-                print("Item added: " + items[i].name + " - " + lineContent);
-
+        if (result && typeof result === "object" && result.line) {
+            //D2Bot.printToConsole("Checking item: " + item.name + " | Result line: " + result.line);
+        
+            let match = result.line.match(/^([a-zA-Z0-9_]+(?:\.nip)?)\s*#(\d+)$/);
+        
+            if (match) {
+                let prefix = match[1].replace(".nip", "").trim(); // remove .nip if present
+                let lineNum = parseInt(match[2], 10);
+                lineNum = lineNum;
+                if (prefix !== myRealm) {
+                    //D2Bot.printToConsole("⚠️ Skipping item: " + item.name + " — Pickit prefix mismatch (" + prefix + ")");
+                    continue;
+                }
+        
                 itemsArray.push({
-                    name: items[i].name,
-                    pickitLine: lineContent
+
+                    lineNumber: lineNum
                 });
+                //D2Bot.printToConsole("✅ Added item: " + item.name + " | Line #: " + lineNum);
             } else {
-                print("Skipping item (no valid pickit match in file): " + items[i].name);
+                //D2Bot.printToConsole("❌ Couldn't extract line number from result.line: " + result.line);
             }
-        } else {
-            print("Skipping item (Pickit check failed or wrong file): " + items[i].name);
         }
+        
     }
 
-    print("logstocks completed. Total valid items: " + itemsArray.length);
+    D2Bot.printToConsole("logstocks completed. Total valid items: " + itemsArray.length);
+
     if (itemsArray.length > 0) {
-        var jsonData = {
+        let jsonData = {
             profile: me.profile,
             account: account,
             realm: myRealm,
             items: itemsArray,
             charname: charname,
             password: pass
-            
         };
 
-        function getRandomString(length = 6) {
-            const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-            let randomStr = "";
-            for (let i = 0; i < length; i++) {
-                randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
-            }
-            return randomStr;
-        }
-        
-        // Generate a random filename
-        var randomStr = getRandomString();
-        var savePath = "shop/data/" + myRealm + "_" + randomStr + ".json";
-        
-        // Save JSON file
+
+
+        let savePath = "shop/data/" + myRealm + "_" + getRandomString() + ".json";
         FileAction.write(savePath, JSON.stringify(jsonData, null, 4));
+        //D2Bot.printToConsole("✅ Saved stock log to: " + savePath);
     } else {
-        print("No valid items found, skipping JSON save.");
+        //D2Bot.printToConsole("❌ No valid items found to save.");
     }
-}
+},
+
 
 
 };
 
-print("domstocks loaded");
+D2Bot.printToConsole("domstocks loaded");
