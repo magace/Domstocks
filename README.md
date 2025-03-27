@@ -33,6 +33,14 @@ Planned features for future updates:
 ## **📌 Bugs**
 Plenty im sure.  I just needed to get something going asap.  Please reach out with any you find. :)
 
+Unidentified Jewels were returing wrong pickit line on d2r have not tested with d2lod.
+
+Delete items does not remove stock.
+
+Add item stopped working.
+
+App lags when characters log with lots of items.
+
 ## **📌 Images**
 
 Item viewer:
@@ -47,6 +55,10 @@ Console:
 Discord:
 ![Discord](https://github.com/user-attachments/assets/59844912-de1f-4141-982b-3d69846c150e)
 
+Dropper:
+![image](https://github.com/user-attachments/assets/de961c59-569b-4fb6-adf9-93b8b5068fb4)
+
+
 
 Automule Preview:  NOT FINISHED
 ![image](https://github.com/user-attachments/assets/c9b9f25a-6dd6-48b2-8e8a-b3d143445cfc)
@@ -58,8 +70,5 @@ Settings:  Droppers at once not finished.
 ## **📌 Final Notes & Bugs**
 
 THIS IS FOR D2LOD NOT D2R!!!
-
-
-Unidentified Jewels were returing wrong pickit line on d2r have not tested with d2lod.
 
 Since I will be adding webedit in the future I decided to add Authentication to the app.  Please reach out to me if you want to use this.  Regards.
