@@ -1,0 +1,898 @@
+/* eslint-disable no-fallthrough */
+/**
+*  @filename    D2BotDropper.dbj
+*  @desc        Entry script for dropper
+*
+*  @typedef {import("./sdk/globals")}
+*  @typedef {import("./libs/systems/dropper/ItemDB")}
+*  @typedef {import("./libs/systems/mulelogger/MuleLogger")}
+*/
+include("critical.js"); // required
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+// D2BotDropper specific settings - for global settings see libs/starter/StarterConfig.js
+Starter.Config.JoinRetrys = 3;         // Number of times to retry joining a game before quitting
+Starter.Config.JoinRetryDelay = 5;      // Time in seconds to wait before next join attempt
+let d2rDropper = true;                 //  Stops mule account and starts it back up.
+let lastProfileStopped = "";
+let profileStopped = false;
+let usePackets = true;                 // Set true to drop using packets
+let restartDropper = false;            // Set true to restart dropper profile after successful drop, or false to quit to lobby
+let unfinishedDrop = null;
+const Controls = require("./libs/modules/Control");
+
+if (typeof Starter.AdvancedConfig[me.profile] === "object") {
+  Object.assign(Starter.Config, Starter.AdvancedConfig[me.profile]);
+}
+delete Starter.AdvancedConfig;
+
+includeCoreLibs({ exclude: ["Skill.js"] });
+include("systems/mulelogger/MuleLogger.js");
+include("systems/dropper/ItemDB.js");
+include("systems/dropper/DropperSetup.js");
+include("systems/domstocks/domstocks.js");
+let i, nextJob, lastGameTick, connectFail, lastGameName;
+let gameCount = DataFile.getStats().runs + 1;
+let joinRetry = 0;
+
+/**
+ * @typedef {Object} dropInfo
+ * @property {string} dropProfile
+ * @property {string} account
+ * @property {string} gameName
+ * @property {string} gamePass
+ * @property {string} charName
+ */
+/** @type {Array<dropInfo>} */
+let jobs = [];
+
+if (!FileTools.exists("data/" + me.profile + ".json")
+  && !FileTools.exists("data/~$" + me.profile + ".json")) {
+  DataFile.create();
+}
+
+function updateCount () {
+  D2Bot.updateCount();
+  delay(1000);
+  ControlAction.click(6, 264, 366, 272, 35);
+
+  try {
+    login(me.profile);
+  } catch (e) {
+    //
+  }
+
+  delay(1000);
+  ControlAction.click(6, 33, 572, 128, 35);
+}
+
+function findUnfinishedDrop() {
+    let dropPath = "shop/drops/" + me.profile + ".json";
+
+    if (!FileTools.exists(dropPath)) {
+        print("DEBUG: Drop file not found: " + dropPath);
+        return null;
+    }
+
+    let content = FileTools.readText(dropPath).trim();
+
+    if (!content || content.length === 0) {
+        print("DEBUG: Drop file is empty.");
+        return null;
+    }
+
+    let jobs;
+
+    try {
+        jobs = JSON.parse(content);
+        print("DEBUG: Parsed drop file, job count: " + jobs.length);
+    } catch (e) {
+        print("DEBUG: Error parsing drop JSON: " + e);
+        return null;
+    }
+
+    if (!Array.isArray(jobs)) {
+        print("DEBUG: Drop file content is not an array.");
+        return null;
+    }
+
+    for (let i = 0; i < jobs.length; i++) {
+        let job = jobs[i];
+
+        print("DEBUG: Checking job " + i + " finished=" + job.finished + " charname=" + job.charname + " game=" + job.gameName);
+
+        if (job.finished === "false") {
+            print("DEBUG: Found unfinished drop for " + job.charname + " in game " + job.gameName);
+            return job;
+        }
+    }
+
+    print("DEBUG: No unfinished drops found in JSON.");
+    return null;
+}
+
+
+
+function mapRealm(realmCode) {
+    if (!realmCode) return "";
+
+    if (realmCode.startsWith("d2r") || realmCode.startsWith("eu")) return "useast";
+    if (realmCode.startsWith("es") || realmCode.startsWith("ea")) return "useast";
+    if (realmCode.startsWith("ws") || realmCode.startsWith("wa")) return "uswest";
+    if (realmCode.startsWith("as") || realmCode.startsWith("ah")) return "asia";
+
+    return "useast"; // default fallback
+}
+
+
+function FTJHandler() {
+    let i, stuff;
+
+    if (joinRetry < Starter.Config.JoinRetrys) {
+        return false;
+    }
+
+    joinRetry = 0;
+
+    let dropFile = "shop/drops/" + me.profile + ".json";
+
+    if (!FileTools.exists(dropFile)) {
+        print("FTJHandler: Drop file missing for profile " + me.profile);
+        return false;
+    }
+
+    let content = FileTools.readText(dropFile).trim();
+
+    if (!content || content.length === 0) {
+        print("FTJHandler: Drop file is empty.");
+        return false;
+    }
+
+    let jobs;
+
+    try {
+        jobs = JSON.parse(content);
+    } catch (e) {
+        print("FTJHandler: Failed to parse JSON - " + e);
+        return false;
+    }
+
+    let modified = false;
+
+    for (i = 0; i < jobs.length; i++) {
+        let job = jobs[i];
+
+        if (job.gameName === unfinishedDrop.gameName && job.finished === "false") {
+            print("FTJHandler: Marking job as failed for game " + job.gameName + " char " + job.charname);
+            job.finished = "failed";
+            modified = true;
+        }
+    }
+
+    if (modified) {
+        let file = File.open(dropFile, FILE_WRITE, false, true, true);
+        file.write(JSON.stringify(jobs, null, 4)); // Pretty-print JSON
+        file.close();
+    }
+
+    unfinishedDrop = null; // Clear it so we don't retry
+
+    return true;
+}
+
+
+
+
+function DropIt() {
+  if (!unfinishedDrop) {
+    D2Bot.printToConsole("No unfinished drop loaded.");
+    return false;
+  }
+
+  D2Bot.printToConsole("Starting drop for character: " + unfinishedDrop.charname);
+
+  while (!me.inTown || !me.gameReady) {
+    delay(100);
+  }
+
+  include("core/Skill.js");
+  delay(500);
+
+  var myrealm = domstocks.getRealmAcro();
+  var normalize = function (s) {
+    return s.replace(/\s+/g, " ").trim();
+  };
+
+  var dropItems = [];
+  var itemIndex = 1;
+  for (var key in unfinishedDrop) {
+    if (key.indexOf("item") === 0 && typeof unfinishedDrop[key] === "object") {
+      var itemData = unfinishedDrop[key];
+      var quantity = parseInt(itemData.Quantity || "1", 10);
+      var dropped = parseInt(itemData.dropped || "0", 10);
+      var line = normalize(itemData.Pickit);
+
+      NTIP.addLine(line, myrealm);
+
+      dropItems.push({
+        key: key,
+        line: line,
+        needed: quantity,
+        dropped: dropped,
+        lineNumber: itemIndex
+      });
+      itemIndex++;
+    }
+  }
+
+  var attempts = 0;
+  while (!Town.openStash() && attempts < 10) {
+    delay(300);
+    sendPacket(1, 0x4f, 4, 0x12, 2, 0);
+    attempts++;
+  }
+
+  var items = me.getItems();
+  var found = [];
+
+  for (var j = 0; j < items.length; j++) {
+    var item = items[j];
+    var result = Pickit.checkItem(item);
+
+    if (result && result.line && result.line.indexOf(myrealm) === 0) {
+      var nipIndex = parseInt(result.line.split("#")[1], 10);
+
+      for (var i = 0; i < dropItems.length; i++) {
+        if (dropItems[i].lineNumber === nipIndex && dropItems[i].dropped < dropItems[i].needed) {
+          found.push({ item: copyUnit(item), entry: dropItems[i] });
+          dropItems[i].dropped += 1;
+          break;
+        }
+      }
+    }
+
+    delay(50);
+  }
+
+  D2Bot.printToConsole("Found " + found.length + " item(s) to drop.");
+  delay(500);
+
+  for (var d = 0; d < found.length; d++) {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (found[d].item.drop()) {
+        D2Bot.printToConsole("Dropped: " + found[d].item.name);
+        break;
+      }
+      delay(300);
+    }
+  }
+
+  try {
+    var dropPath = "shop/drops/" + me.profile + ".json";
+    var jobs = JSON.parse(FileTools.readText(dropPath));
+    var idx = -1;
+
+    for (var k = 0; k < jobs.length; k++) {
+      if (jobs[k].drop === unfinishedDrop.drop) {
+        idx = k;
+        break;
+      }
+    }
+
+    if (idx !== -1) {
+      // Save updated drop counts for each item
+      for (var i = 0; i < dropItems.length; i++) {
+        var key = dropItems[i].key;
+        jobs[idx][key].dropped = String(dropItems[i].dropped);
+      }
+
+      // Only mark finished if all are dropped
+      var allDropped = dropItems.every(function (item) {
+        return item.dropped >= item.needed;
+      });
+
+      if (allDropped) {
+        jobs[idx].finished = "true";
+        D2Bot.printToConsole("✅ Drop marked as finished in file.");
+      } else {
+        D2Bot.printToConsole("🔁 Partial drop complete. Remaining items still need dropping.");
+      }
+
+      FileTools.writeText(dropPath, JSON.stringify(jobs, null, 2));
+    } else {
+      D2Bot.printToConsole("Could not find matching drop job to mark finished.");
+    }
+  } catch (e) {
+    D2Bot.printToConsole("Failed to update drop file: " + e);
+  }
+
+  print("logging char");
+  MuleLogger.logChar();
+  print("EXITING");
+  D2Bot.restart();
+  return true;
+}
+
+
+
+
+
+
+
+function dropLog (who, info) {
+  if (!who) who = "unknown";
+  if (!info) return false;
+
+  let timestamp = ItemDB.timeStamp();
+  let line = timestamp + "<" + me.profile + "> " + info;
+
+  FileAction.append("databases/logs/drop_" + who + ".log", line + "\n");
+  return true;
+}
+
+function logFG (who, value, success, f) {
+  let date = new Date();
+  let h = date.getHours();
+  let m = date.getMinutes();
+  let s = date.getSeconds();
+  let year = date.getFullYear();
+  let mo = date.getMonth() + 1;
+  let d = date.getDate();
+  let timestamp = (
+    "" + year + "-"
+    + (mo < 10 ? "0" + mo : mo)
+    + "-" + (d < 10 ? "0" + d : d)
+    + " " + (h < 10 ? "0" + h : h)
+    + ":" + (m < 10 ? "0" + m : m)
+    + ":" + (s < 10 ? "0" + s : s) + ""
+  );
+
+  let text = timestamp + "," + who + "," + value + "," + success + "," + f;
+
+  FileAction.append("databases/logs/FG_Sales.csv", text + "\n");
+  return true;
+}
+
+function locationAction () {
+  if (me.ingame) {
+    return;
+  }
+
+  let i, string, text, location, quitFromLobby;
+
+  location = getLocation();
+
+  MainSwitch:
+  switch (location) {
+  case sdk.game.locations.PreSplash:
+    ControlAction.click();
+
+    break;
+  case sdk.game.locations.Lobby:
+    D2Bot.updateStatus("Lobby");
+
+    if (FTJHandler()) {
+      ControlAction.click(6, 693, 490, 80, 20); // Quit from Lobby
+      break;
+    }
+
+    if (Starter.inGame) {
+
+      D2Bot.updateRuns();
+      lastGameTick = getTickCount();
+      Starter.gameCount += 1;
+      Starter.lastGameStatus = "ready";
+      Starter.inGame = false;
+
+
+      if (!ControlAction.click(6, 693, 490, 80, 20)) { // Quit from Lobby
+        quitFromLobby = true;
+      }
+
+      break;
+    }
+
+    if (quitFromLobby) {
+      quitFromLobby = false;
+      ControlAction.click(6, 693, 490, 80, 20); // Quit from Lobby retry attempt
+      break;
+    }
+
+    Starter.LocationEvents.openJoinGameWindow();
+
+    break;
+  case sdk.game.locations.WaitingInLine:
+    D2Bot.updateStatus("Waiting...");
+    Starter.locationTimeout(Starter.Config.WaitInLineTimeout * 1e3, location);
+    ControlAction.click(6, 433, 433, 96, 32);
+
+    break;
+  case 3: // Lobby Chat
+    break;
+  case sdk.game.locations.CreateGame:
+    Controls.CancelCreateGame.click();
+    Controls.JoinGameWindow.click();
+
+    break;
+case sdk.game.locations.JoinGame:
+    D2Bot.updateStatus("Join Game");
+    delay(100); 
+
+    if (unfinishedDrop && unfinishedDrop.gameName !== "") {
+        ControlAction.setText(1, 606, 148, 155, 20, unfinishedDrop.gamePassword);
+        ControlAction.setText(1, 432, 148, 155, 20, unfinishedDrop.gameName);
+
+        if (Starter.lastGameStatus === "pending" || (Starter.gameInfo.error && DataFile.getStats().gameName === unfinishedDrop.gameName)) {
+            D2Bot.printToConsole("Failed to join game");
+            ControlAction.timeoutDelay("Join Delay", Starter.Config.JoinDelay * 1e3);
+            D2Bot.updateRuns();
+            delay(200);
+        }
+
+        delay(2000 + Math.floor(Math.random() * 500));
+        print("Joining game: " + unfinishedDrop.gameName + "/" + unfinishedDrop.gamePassword);
+
+        me.blockMouse = true;
+
+        DataFile.updateStats("gameName", unfinishedDrop.gameName);
+        ControlAction.click(6, 594, 433, 172, 32); // Join button
+
+        me.blockMouse = false;
+
+        Starter.lastGameStatus = "pending";
+        joinRetry++;
+        print("JoinRetry set to " + joinRetry);
+        Starter.locationTimeout(15000, location);
+    } else {
+        print("No unfinished drop or missing game info.");
+    }
+
+    break;
+
+  case 6: // Ladder
+    break;
+  case 7: // Channel List
+    break;
+  case 18: // D2 Splash
+  case sdk.game.locations.MainMenu:
+case sdk.game.locations.Login:
+    D2Bot.updateStatus("Waiting for Jobs");
+
+    unfinishedDrop = findUnfinishedDrop(); // 👈 updates the global var
+
+    if (unfinishedDrop) {
+        print("DROP FOUND - resuming");
+        print("Account: " + unfinishedDrop.accountname);
+        print("Char: " + unfinishedDrop.charname);
+        print("Game: " + unfinishedDrop.gameName + "/" + unfinishedDrop.gamePassword);
+        print("Realm: " + unfinishedDrop.realm);
+
+        var itemStrings = [];
+        for (var key in unfinishedDrop) {
+            if (key.indexOf("item") === 0 && typeof unfinishedDrop[key] === "object" && unfinishedDrop[key] !== null) {
+                var item = unfinishedDrop[key];
+
+                if (item.Pickit && item.Quantity) {
+                    itemStrings.push(item.Pickit + " x" + item.Quantity);
+                }
+            }
+        }
+
+        print("Items: " + itemStrings.join(", "));
+
+        unfinishedDrop.account = unfinishedDrop.accountname;
+        unfinishedDrop.password = unfinishedDrop.accountpassword;
+        unfinishedDrop.realm = mapRealm(unfinishedDrop.realm);
+
+        delay(1000);
+        D2Bot.updateStatus("Logging In");
+
+        try {
+            if (d2rDropper) {
+                D2Bot.stop(unfinishedDrop.account);
+                lastProfileStopped = unfinishedDrop.account;
+                profileStopped = true;
+                D2Bot.printToConsole("Stopping " + unfinishedDrop.account, 5);
+            }
+
+            ControlAction.loginAccount(unfinishedDrop);
+
+            // Safety: handle weird splash location
+            if (getLocation() === 12 && !getControl(4, 626, 100, 151, 44)) {
+                ControlAction.click(6, 33, 572, 128, 35);
+            }
+        } catch (e) {
+            print("Login error: " + e + " " + getLocation());
+        }
+    } else {
+        print("No unfinished drops for profile: " + me.profile);
+    }
+    break;
+
+
+case sdk.game.locations.CharSelect:
+    print("IN CHAR SELECT");
+
+    if (unfinishedDrop) {
+        print("Continuing drop for char: " + unfinishedDrop.charname);
+
+        if (unfinishedDrop.account !== me.account) {
+            print("Mismatch account, exiting char screen.");
+            ControlAction.click(6, 33, 572, 128, 35);
+        } else {
+            if (ControlAction.findCharacter({ charName: unfinishedDrop.charname })) {
+                print("Character found: " + unfinishedDrop.charname);
+                ControlAction.loginCharacter({ charName: unfinishedDrop.charname });
+            } else {
+                print("Character not found: " + unfinishedDrop.charname);
+                ControlAction.click(6, 33, 572, 128, 35);
+            }
+        }
+    } else {
+        print("No drop data, exiting char screen.");
+        ControlAction.click(6, 33, 572, 128, 35);
+    }
+    break;
+
+  case 10: // Login Error
+    string = "";
+    text = ControlAction.getText(4, 199, 377, 402, 140);
+
+    if (text) {
+      for (i = 0; i < text.length; i += 1) {
+        string += text[i];
+
+        if (i !== text.length - 1) {
+          string += " ";
+        }
+      }
+
+      switch (string) {
+      case getLocaleString(5207):
+        D2Bot.updateStatus("Invalid Password");
+        D2Bot.printToConsole("Invalid Password");
+
+        break;
+      case getLocaleString(5208):
+        D2Bot.updateStatus("Invalid Account");
+        D2Bot.printToConsole("Invalid Account");
+
+        break;
+      case getLocaleString(5202): // cd key intended for another product
+      case getLocaleString(10915): // lod key intended for another product
+        D2Bot.updateStatus("Invalid CDKey");
+        D2Bot.printToConsole("Invalid CDKey: " + Starter.gameInfo.mpq, 6);
+        D2Bot.CDKeyDisabled();
+
+        if (Starter.gameInfo.switchKeys) {
+          ControlAction.timeoutDelay("Key switch delay", Starter.Config.SwitchKeyDelay * 1000);
+          D2Bot.restart(true);
+        } else {
+          D2Bot.stop();
+        }
+
+        break;
+      case getLocaleString(5199):
+        D2Bot.updateStatus("Disabled CDKey");
+        D2Bot.printToConsole("Disabled CDKey: " + Starter.gameInfo.mpq, 6);
+        D2Bot.CDKeyDisabled();
+
+        if (Starter.gameInfo.switchKeys) {
+          ControlAction.timeoutDelay("Key switch delay", Starter.Config.SwitchKeyDelay * 1000);
+          D2Bot.restart(true);
+        } else {
+          D2Bot.stop();
+        }
+
+        break;
+      case getLocaleString(10913):
+        D2Bot.updateStatus("Disabled LoD CDKey");
+        D2Bot.printToConsole("Disabled LoD CDKey: " + Starter.gameInfo.mpq, 6);
+        D2Bot.CDKeyDisabled();
+
+        if (Starter.gameInfo.switchKeys) {
+          ControlAction.timeoutDelay("Key switch delay", Starter.Config.SwitchKeyDelay * 1000);
+          D2Bot.restart(true);
+        } else {
+          D2Bot.stop();
+        }
+
+        break;
+      case getLocaleString(5347):
+        D2Bot.updateStatus("Disconnected");
+        D2Bot.printToConsole("Disconnected");
+        ControlAction.click(6, 335, 412, 128, 35);
+
+        break MainSwitch;
+      default:
+        D2Bot.updateStatus("Login Error");
+        D2Bot.printToConsole("Login Error - " + string);
+
+        if (Starter.gameInfo.switchKeys) {
+          ControlAction.timeoutDelay("Key switch delay", Starter.Config.SwitchKeyDelay * 1000);
+          D2Bot.restart(true);
+        } else {
+          D2Bot.stop();
+        }
+
+        break;
+      }
+    }
+
+    ControlAction.click(6, 335, 412, 128, 35);
+
+    while (true) {
+      delay(1000);
+    }
+
+    // eslint-disable-next-line no-unreachable
+    break;
+  case 11: // Unable To Connect
+    D2Bot.updateStatus("Unable To Connect");
+
+    if (connectFail) {
+      ControlAction.timeoutDelay("Unable to Connect", Starter.Config.UnableToConnectDelay * 6e4);
+
+      connectFail = false;
+    } else {
+      connectFail = true;
+    }
+
+    if (!ControlAction.click(6, 335, 450, 128, 35)) {
+      break;
+    }
+
+    break;
+  case 13: // Realm Down - Character Select screen
+    D2Bot.updateStatus("Realm Down");
+    delay(1000);
+
+    if (!ControlAction.click(6, 33, 572, 128, 35)) {
+      break;
+    }
+
+    updateCount();
+    ControlAction.timeoutDelay("Realm Down", Starter.Config.RealmDownDelay * 6e4);
+    D2Bot.CDKeyRD();
+
+    if (Starter.gameInfo.switchKeys && !Starter.gameInfo.rdBlocker) {
+      D2Bot.printToConsole("Realm Down - Changing CD-Key");
+      ControlAction.timeoutDelay("Key switch delay", Starter.Config.SwitchKeyDelay * 1000);
+      D2Bot.restart(true);
+    } else {
+      D2Bot.printToConsole("Realm Down - Restart");
+      D2Bot.restart();
+    }
+
+    break;
+  case 14: // Character Select - Disconnected
+    D2Bot.updateStatus("Disconnected");
+    delay(500);
+    ControlAction.click(6, 351, 337, 96, 32);
+
+    break;
+  case 16: // Character Select - Please Wait popup
+    if (!Starter.locationTimeout(Starter.Config.PleaseWaitTimeout * 1e3, location)) {
+      ControlAction.click(6, 351, 337, 96, 32);
+    }
+
+    break;
+  case 17: // Lobby - Lost Connection - just click okay, since we're toast anyway
+    delay(1000);
+    ControlAction.click(6, 351, 337, 96, 32);
+
+    break;
+  case 19: // Login - Cdkey In Use
+    D2Bot.printToConsole(Starter.gameInfo.mpq + " is in use by " + ControlAction.getText(4, 158, 310, 485, 40), 6);
+    D2Bot.CDKeyInUse();
+
+    if (Starter.gameInfo.switchKeys) {
+      ControlAction.timeoutDelay("Key switch delay", Starter.Config.SwitchKeyDelay * 1000);
+      D2Bot.restart(true);
+    } else {
+      ControlAction.timeoutDelay("CD-Key in use", Starter.Config.CDKeyInUseDelay * 6e4);
+      ControlAction.click(6, 335, 450, 128, 35);
+    }
+
+    break;
+  case 20: // Single Player - Select Difficulty
+    break;
+  case 21: // Main Menu - Connecting
+    if (!Starter.locationTimeout(Starter.Config.ConnectingTimeout * 1e3, location)) {
+      ControlAction.click(6, 330, 416, 128, 35);
+    }
+
+    break;
+  case 22: // Login - Invalid Cdkey (classic or xpac)
+    text = ControlAction.getText(4, 162, 270, 477, 50);
+    string = "";
+
+    if (text) {
+      for (i = 0; i < text.length; i += 1) {
+        string += text[i];
+
+        if (i !== text.length - 1) {
+          string += " ";
+        }
+      }
+    }
+
+    switch (string) {
+    case getLocaleString(10914):
+      D2Bot.printToConsole(Starter.gameInfo.mpq + " LoD key in use by " + ControlAction.getText(4, 158, 310, 485, 40), 6);
+      D2Bot.CDKeyInUse();
+
+      if (Starter.gameInfo.switchKeys) {
+        ControlAction.timeoutDelay("Key switch delay", Starter.Config.SwitchKeyDelay * 1000);
+        D2Bot.restart(true);
+      } else {
+        ControlAction.click(6, 335, 450, 128, 35);
+        ControlAction.timeoutDelay("LoD key in use", Starter.Config.CDKeyInUseDelay * 6e4);
+      }
+
+      break;
+    default:
+      if (Starter.gameInfo.switchKeys) {
+        D2Bot.printToConsole("Invalid CD-Key");
+        ControlAction.timeoutDelay("Key switch delay", Starter.Config.SwitchKeyDelay * 1000);
+        D2Bot.restart(true);
+      } else {
+        ControlAction.click(6, 335, 450, 128, 35);
+        ControlAction.timeoutDelay("Invalid CD-Key", Starter.Config.CDKeyInUseDelay * 6e4);
+      }
+
+      break;
+    }
+
+    break;
+  case 23: // Character Select - Connecting
+  case 42: // Empty character screen
+    string = "";
+    text = ControlAction.getText(4, 45, 318, 531, 140);
+
+    if (text) {
+      for (i = 0; i < text.length; i += 1) {
+        string += text[i];
+
+        if (i !== text.length - 1) {
+          string += " ";
+        }
+      }
+
+      if (string === getLocaleString(11161)) { // CDKey disabled from realm play
+        D2Bot.updateStatus("Realm Disabled CDKey");
+        D2Bot.printToConsole("Realm Disabled CDKey: " + Starter.gameInfo.mpq, 6);
+        D2Bot.CDKeyDisabled();
+
+        if (Starter.gameInfo.switchKeys) {
+          ControlAction.timeoutDelay("Key switch delay", Starter.Config.SwitchKeyDelay * 1000);
+          D2Bot.restart(true);
+        } else {
+          D2Bot.stop();
+        }
+      }
+    }
+
+    if (!Starter.locationTimeout(Starter.Config.ConnectingTimeout * 1e3, location)) {
+      ControlAction.click(6, 33, 572, 128, 35);
+
+      if (Starter.gameInfo.rdBlocker) {
+        D2Bot.restart();
+      }
+    }
+
+    break;
+  case 24: // Server Down - not much to do but wait..
+    break;
+  case 25: // Lobby - Please Wait
+    if (!Starter.locationTimeout(Starter.Config.PleaseWaitTimeout * 1e3, location)) {
+      ControlAction.click(6, 351, 337, 96, 32);
+    }
+
+    break;
+  case 26: // Lobby - Game Name Exists
+    break;
+  case sdk.game.locations.GatewaySelect:
+    Controls.GatewayCancel.click();
+  case sdk.game.locations.GameDoesNotExist:
+    Starter.LocationEvents.gameDoesNotExist();
+
+    break;
+  case 34: // Email registration
+    if (getControl(6, 415, 412, 128, 35)) {
+      ControlAction.click(6, 415, 412, 128, 35);
+    } else {
+      ControlAction.click(6, 265, 572, 272, 35);
+    }
+    break;
+  case sdk.game.locations.GameIsFull:
+    D2Bot.printToConsole("Game is full");
+    Starter.lastGameStatus = "ready";
+    Starter.locationTimeout(Time.seconds(15), location);
+
+    break;
+  case 30: // error
+    D2Bot.printToConsole("location 30 error - please report if it doesn't work");
+    if (!Starter.locationTimeout(Starter.Config.PleaseWaitTimeout * 1e3, location)) {
+      ControlAction.click(6, 351, 337, 96, 32);
+    }
+
+    break;
+  default:
+    if (location !== undefined) {
+      D2Bot.printToConsole("Unhandled location " + location);
+      delay(500);
+      D2Bot.restart();
+    }
+
+    break;
+  }
+}
+
+function main () {
+  debugLog(me.profile);
+  addEventListener("copydata", Starter.receiveCopyData);
+  addEventListener("scriptmsg", Starter.scriptMsgEvent);
+
+  while (!Starter.handle) {
+    delay(100);
+  }
+
+  DataFile.updateStats("handle", Starter.handle);
+  D2Bot.init();
+  load("threads/heartbeat.js");
+
+  while (!Object.keys(Starter.gameInfo).length) {
+    D2Bot.requestGameInfo();
+    delay(500);
+  }
+
+  if (Starter.gameInfo.error) {
+    delay(200);
+
+    if (!!DataFile.getStats().debugInfo) {
+      Starter.gameInfo.crashInfo = DataFile.getStats().debugInfo;
+      D2Bot.printToConsole("Crash Info: Script: " + JSON.parse(Starter.gameInfo.crashInfo).currScript + " Area: " + JSON.parse(Starter.gameInfo.crashInfo).area, sdk.colors.D2Bot.Gray);
+    }
+
+    ControlAction.timeoutDelay("Crash Delay", Starter.Config.CrashDelay * 1e3);
+    D2Bot.updateRuns();
+  }
+
+  DataFile.updateStats("debugInfo", JSON.stringify({ currScript: "none", area: "out of game" }));
+
+  while (!Object.keys(Starter.profileInfo).length) {
+    D2Bot.getProfile();
+    print("Getting Profile");
+    delay(500);
+  }
+
+  while (true) {
+    while (me.ingame) { // returns true before actually in game so we can't only use this check
+      if (me.gameReady) { // returns false when switching acts so we can't use while
+        if (!Starter.inGame) {
+          joinRetry = 0;
+          console.log("ÿc4Updating Status");
+          Starter.gameStart = getTickCount();
+          Starter.lastGameStatus = "ingame";
+          Starter.inGame = true;
+          lastGameName = me.gamename.toLowerCase();
+          DataFile.updateStats("runs", gameCount);
+          DropIt();
+        }
+
+        if ((getTickCount() - me.gamestarttime) > Starter.Config.MinGameTime * 1000) {
+          if (restartDropper) {
+            D2Bot.restart();
+          } else {
+            quit();
+          }
+        }
+      }
+
+      delay(1000);
+    }
+
+    locationAction();
+    delay(1000);
+  }
+}
