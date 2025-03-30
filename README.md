@@ -21,9 +21,9 @@ Domstocks is a **Kolbot inventory management tool** designed to help you:
 
 Planned features for future updates:
 
-🔹 Dropper – Drop selected items directly from the app
+~~🔹 Dropper – Drop selected items directly from the app~~
 
-🔹 Discord – Send specific notifications to discord channels
+~~🔹 Discord – Send specific notifications to discord channels~~
 
 🔹 Automule – Auto detects mule profiles and mf profiles to setup config from the app
 
@@ -32,6 +32,14 @@ Planned features for future updates:
 
 ## **📌 Bugs**
 Plenty im sure.  I just needed to get something going asap.  Please reach out with any you find. :)
+
+Unidentified Jewels were returing wrong pickit line on d2r have not tested with d2lod.
+
+Delete items does not remove stock.
+
+Add item stopped working.
+
+App lags when characters log with lots of items.
 
 ## **📌 Images**
 
@@ -44,13 +52,22 @@ Add/Edit single item:
 Console:
 ![image](https://github.com/user-attachments/assets/401b1434-f143-408c-96a0-7761e5a83f9b)
 
+Discord:
+![Discord](https://github.com/user-attachments/assets/59844912-de1f-4141-982b-3d69846c150e)
+
+Dropper:
+![image](https://github.com/user-attachments/assets/de961c59-569b-4fb6-adf9-93b8b5068fb4)
+
+
+
 Automule Preview:  NOT FINISHED
 ![image](https://github.com/user-attachments/assets/c9b9f25a-6dd6-48b2-8e8a-b3d143445cfc)
 
-Settings:  Discord wont be added until I finish the droppers
-![image](https://github.com/user-attachments/assets/3441ce9a-9eec-47b1-9079-ad932adea0f3)
+Settings:  Droppers at once not finished.
+![image](https://github.com/user-attachments/assets/48d64abe-e187-426e-8f9b-974e751148fa)
 
-## **📌 Final Notes**
+
+## **📌 Final Notes & Bugs**
 
 THIS IS FOR D2LOD NOT D2R!!!
 
