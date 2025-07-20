@@ -35,13 +35,8 @@ Planned features for future updates:
 ## **📌 Bugs**
 Plenty im sure.  I just needed to get something going asap.  Please reach out with any you find. :)
 
-Unidentified Jewels were returing wrong pickit line on d2r have not tested with d2lod.
-
-Delete items does not remove stock.
-
-Add item stopped working.
-
-App lags when characters log with lots of items.
+Adding/Cloning a item will not add it to pickit until the app is restarted.
+Autoperm may have stopped purging characters that are missing.
 
 ## **📌 Images**
 
