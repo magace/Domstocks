@@ -12,11 +12,11 @@ include("critical.js"); // required
 // D2BotDropper specific settings - for global settings see libs/starter/StarterConfig.js
 Starter.Config.JoinRetrys = 3;         // Number of times to retry joining a game before quitting
 Starter.Config.JoinRetryDelay = 5;      // Time in seconds to wait before next join attempt
-let d2rDropper = true;                 //  Stops mule account and starts it back up.
+let d2rDropper = false;                 //  Stops mule account and starts it back up.
 let lastProfileStopped = "";
 let profileStopped = false;
 let usePackets = true;                 // Set true to drop using packets
-let restartDropper = false;            // Set true to restart dropper profile after successful drop, or false to quit to lobby
+let restartDropper = true;            // Set true to restart dropper profile after successful drop, or false to quit to lobby
 let unfinishedDrop = null;
 const Controls = require("./libs/modules/Control");
 
@@ -67,21 +67,30 @@ function updateCount () {
 
 function findUnfinishedDrop() {
     let dropPath = "shop/drops/" + me.profile + ".json";
+    let content = "";
+    let maxRetries = 5;
 
     if (!FileTools.exists(dropPath)) {
         print("DEBUG: Drop file not found: " + dropPath);
         return null;
     }
 
-    let content = FileTools.readText(dropPath).trim();
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            content = FileTools.readText(dropPath).trim();
+            break; // Success, exit retry loop
+        } catch (e) {
+            print("DEBUG: Failed to read file (attempt " + (attempt + 1) + "): " + e);
+            delay(500); // Wait half a second before retrying
+        }
+    }
 
     if (!content || content.length === 0) {
-        print("DEBUG: Drop file is empty.");
+        print("DEBUG: Drop file is empty or couldn't be read.");
         return null;
     }
 
     let jobs;
-
     try {
         jobs = JSON.parse(content);
         print("DEBUG: Parsed drop file, job count: " + jobs.length);
@@ -97,7 +106,6 @@ function findUnfinishedDrop() {
 
     for (let i = 0; i < jobs.length; i++) {
         let job = jobs[i];
-
         print("DEBUG: Checking job " + i + " finished=" + job.finished + " charname=" + job.charname + " game=" + job.gameName);
 
         if (job.finished === "false") {
@@ -109,6 +117,7 @@ function findUnfinishedDrop() {
     print("DEBUG: No unfinished drops found in JSON.");
     return null;
 }
+
 
 
 
@@ -184,11 +193,11 @@ function FTJHandler() {
 
 function DropIt() {
   if (!unfinishedDrop) {
-    D2Bot.printToConsole("No unfinished drop loaded.");
+    D2Bot.printToConsole("⛔ No unfinished drop loaded.");
     return false;
   }
 
-  D2Bot.printToConsole("Starting drop for character: " + unfinishedDrop.charname);
+  D2Bot.printToConsole("🚀 Starting drop for character: " + unfinishedDrop.charname);
 
   while (!me.inTown || !me.gameReady) {
     delay(100);
@@ -198,6 +207,8 @@ function DropIt() {
   delay(500);
 
   var myrealm = domstocks.getRealmAcro();
+  D2Bot.printToConsole("🧭 Realm detected: " + myrealm);
+
   var normalize = function (s) {
     return s.replace(/\s+/g, " ").trim();
   };
@@ -212,6 +223,7 @@ function DropIt() {
       var line = normalize(itemData.Pickit);
 
       NTIP.addLine(line, myrealm);
+      D2Bot.printToConsole("➕ Added Pickit line: " + line + " [line " + itemIndex + "]");
 
       dropItems.push({
         key: key,
@@ -232,40 +244,105 @@ function DropIt() {
   }
 
   var items = me.getItems();
+ // D2Bot.printToConsole("🎒 Inventory items found: " + items.length);
+
   var found = [];
 
   for (var j = 0; j < items.length; j++) {
     var item = items[j];
     var result = Pickit.checkItem(item);
+if (result && result.line) {
+  D2Bot.printToConsole("✅ Matched line: " + result.line + " for item: " + item.name);
+} else {
+  //D2Bot.printToConsole("❌ No match for: " + item.name + " (classid: " + item.classid + ")");
+}
+    if (result && result.line) {
+      D2Bot.printToConsole("🧪 Matched item: " + item.name + " → " + result.line);
 
-    if (result && result.line && result.line.indexOf(myrealm) === 0) {
-      var nipIndex = parseInt(result.line.split("#")[1], 10);
+      if (result.line.indexOf(myrealm) === 0) {
+        var nipIndex = parseInt(result.line.split("#")[1], 10);
 
-      for (var i = 0; i < dropItems.length; i++) {
-        if (dropItems[i].lineNumber === nipIndex && dropItems[i].dropped < dropItems[i].needed) {
-          found.push({ item: copyUnit(item), entry: dropItems[i] });
-          dropItems[i].dropped += 1;
-          break;
+        for (var i = 0; i < dropItems.length; i++) {
+          if (dropItems[i].lineNumber === nipIndex && dropItems[i].dropped < dropItems[i].needed) {
+            found.push({ item: copyUnit(item), entry: dropItems[i] });
+            dropItems[i].dropped += 1;
+            break;
+          }
         }
+      } else {
+        //D2Bot.printToConsole("❌ Skipped item with mismatched realm: " + result.line);
       }
+    } else {
+      //D2Bot.printToConsole("❌ No pickit match for: " + item.name);
     }
 
     delay(50);
   }
 
-  D2Bot.printToConsole("Found " + found.length + " item(s) to drop.");
+  D2Bot.printToConsole("✅ Items ready to drop: " + found.length);
   delay(500);
+if (found.length === 0) {
+  try {
+    var dropPath = "shop/drops/" + me.profile + ".json";
+    var jobs = JSON.parse(FileTools.readText(dropPath));
+    var idx = -1;
+
+    for (var k = 0; k < jobs.length; k++) {
+      if (
+        jobs[k].orderId === unfinishedDrop.orderId &&
+        jobs[k].charname === unfinishedDrop.charname &&
+        jobs[k].gameName === unfinishedDrop.gameName
+      ) {
+        idx = k;
+        break;
+      }
+    }
+
+    if (idx !== -1) {
+      jobs[idx].finished = "failed";
+      jobs[idx].error = "No matching items found in inventory";
+      FileTools.writeText(dropPath, JSON.stringify(jobs, null, 2));
+      D2Bot.printToConsole("❌ No items matched. Drop marked as failed.");
+        let logText =
+          "FAILED Order ID: " + unfinishedDrop.orderId + "\n" +
+          "Item: " + dropItems.line + "\n" +
+          "Time: " + new Date().toLocaleString();
+        let filename = "logs/drops/" + me.profile + "-" + rand(10000) + ".txt";
+        FileAction.write(filename, logText);
+        
+
+    }
+  } catch (e) {
+    D2Bot.printToConsole("❌ Failed to mark drop as failed: " + e);
+  }
+
+  return false;
+}
 
   for (var d = 0; d < found.length; d++) {
     for (var attempt = 0; attempt < 3; attempt++) {
       if (found[d].item.drop()) {
-        D2Bot.printToConsole("Dropped: " + found[d].item.name);
+        D2Bot.printToConsole("📤 Dropped: " + found[d].item.name);
+
+        // ✅ Construct a log message with order ID inside the file
+        let logText =
+          "DROPPED Order ID: " + unfinishedDrop.orderId + "\n" +
+          "Item Name: " + found[d].item.name + "\n" +
+          "Pickit: " + found[d].entry.line + "\n" +
+          "Time: " + new Date().toLocaleString();
+        let filename = "logs/drops/" + me.profile + "-" + rand(10000) + ".txt";
+        FileAction.write(filename, logText);
         break;
       }
+
+      found[d].entry.retrys = (found[d].entry.retrys || 0) + 1;
       delay(300);
     }
   }
 
+
+
+  // Update drop file
   try {
     var dropPath = "shop/drops/" + me.profile + ".json";
     var jobs = JSON.parse(FileTools.readText(dropPath));
@@ -279,13 +356,11 @@ function DropIt() {
     }
 
     if (idx !== -1) {
-      // Save updated drop counts for each item
       for (var i = 0; i < dropItems.length; i++) {
         var key = dropItems[i].key;
         jobs[idx][key].dropped = String(dropItems[i].dropped);
       }
-
-      // Only mark finished if all are dropped
+      jobs[idx][key].Retrys = String(dropItems[i].retrys || 0);
       var allDropped = dropItems.every(function (item) {
         return item.dropped >= item.needed;
       });
@@ -299,16 +374,19 @@ function DropIt() {
 
       FileTools.writeText(dropPath, JSON.stringify(jobs, null, 2));
     } else {
-      D2Bot.printToConsole("Could not find matching drop job to mark finished.");
+      D2Bot.printToConsole("⚠️ Could not find matching drop job to mark finished.");
     }
   } catch (e) {
-    D2Bot.printToConsole("Failed to update drop file: " + e);
+    D2Bot.printToConsole("❌ Failed to update drop file: " + e);
   }
 
-  print("logging char");
+  print("📜 Logging character...");
   MuleLogger.logChar();
-  print("EXITING");
-  D2Bot.restart();
+  if (restartDropper) {
+      print("🔄 Restarting bot...");
+      D2Bot.restart();
+  }
+
   return true;
 }
 
