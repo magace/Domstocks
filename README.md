@@ -63,11 +63,12 @@ AutoPerm:
 <img width="999" height="815" alt="image" src="https://github.com/user-attachments/assets/35c38e1b-9df6-450f-8103-ee6468000dad" />
 
 
-Automule Preview:  NOT FINISHED
-![image](https://github.com/user-attachments/assets/c9b9f25a-6dd6-48b2-8e8a-b3d143445cfc)
-
 Settings:  Droppers at once not finished.
 ![image](https://github.com/user-attachments/assets/48d64abe-e187-426e-8f9b-974e751148fa)
+
+
+Automule Preview:  NOT FINISHED
+![image](https://github.com/user-attachments/assets/c9b9f25a-6dd6-48b2-8e8a-b3d143445cfc)
 
 
 ## **📌 Final Notes & Bugs**
