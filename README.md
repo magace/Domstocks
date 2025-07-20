@@ -25,6 +25,8 @@ Planned features for future updates:
 
 ~~🔹 Discord – Send specific notifications to discord channels~~
 
+~~🔹 Autoperm – Keeps characters with stock perm~~
+
 🔹 Automule – Auto detects mule profiles and mf profiles to setup config from the app
 
 🔹 Webedit - Edit everything from a webpage so you can easily view stocks, edit items, add items and more
