@@ -46,7 +46,8 @@ App lags when characters log with lots of items.
 ## **📌 Images**
 
 Item viewer:
-![image](https://github.com/user-attachments/assets/5cbe45bb-a84f-4446-8ced-0d8262253e66)
+<img width="1812" height="882" alt="image" src="https://github.com/user-attachments/assets/0877e4eb-7881-4fd4-9a21-081570f132ef" />
+
 
 Add/Edit single item:
 ![image](https://github.com/user-attachments/assets/19647fe1-d872-4249-8497-8bf5fe6b956d)
@@ -55,11 +56,16 @@ Console:
 ![image](https://github.com/user-attachments/assets/401b1434-f143-408c-96a0-7761e5a83f9b)
 
 Discord:
-![Discord](https://github.com/user-attachments/assets/59844912-de1f-4141-982b-3d69846c150e)
+<img width="2903" height="558" alt="image" src="https://github.com/user-attachments/assets/7d91ab73-890b-4dc5-9d61-2442d3e8355a" />
+
 
 Dropper:
 ![image](https://github.com/user-attachments/assets/de961c59-569b-4fb6-adf9-93b8b5068fb4)
 
+AutoPerm:
+<img width="1624" height="629" alt="image" src="https://github.com/user-attachments/assets/a1dc5a0a-2804-46e2-9c2d-7aa5824ec1dd" />
+
+<img width="999" height="815" alt="image" src="https://github.com/user-attachments/assets/35c38e1b-9df6-450f-8103-ee6468000dad" />
 
 
 Automule Preview:  NOT FINISHED
