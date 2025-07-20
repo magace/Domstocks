@@ -62,6 +62,10 @@ AutoPerm:
 
 <img width="999" height="815" alt="image" src="https://github.com/user-attachments/assets/35c38e1b-9df6-450f-8103-ee6468000dad" />
 
+<img width="1530" height="544" alt="image" src="https://github.com/user-attachments/assets/e87dc45f-da54-4979-9b91-bbfeaf48bbc4" />
+
+<img width="1516" height="524" alt="image" src="https://github.com/user-attachments/assets/fb599723-fd18-4b0f-8a3d-2a4e285f1d3d" />
+
 
 Settings:  Droppers at once not finished.
 ![image](https://github.com/user-attachments/assets/48d64abe-e187-426e-8f9b-974e751148fa)
